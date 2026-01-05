@@ -1,50 +1,46 @@
 let engine, world;
 let ground, walls = [];
 let keys = [];
-
 let dragging = false;
 let dragStart = null;
 let dragEndX = 0, dragEndY = 0;
 let previewParams = null;
-
 const MIN_SIZE = 24;
 const WALL_THICKNESS = 90;
-
 let grabBody = null, grabConstraint = null;
 let pointerX = 0, pointerY = 0;
 
 // 자이로 및 권한 관련 변수
 let gyroEnabled = false;
 let permissionGranted = false;
-let offsetX = 0, offsetY = 0;
 let isCalibrated = false;
 
 function setup() {
   const cnv = createCanvas(windowWidth, windowHeight);
   cnv.parent("container");
   
-  // ✅ 모바일 브라우저 기본 터치 동작(스크롤) 차단
+  // 모바일 스크롤 및 튕김 방지
   cnv.elt.addEventListener('touchstart', e => e.preventDefault(), {passive: false});
   cnv.elt.addEventListener('touchmove', e => e.preventDefault(), {passive: false});
 
   engine = Matter.Engine.create();
   world = engine.world;
-
   buildBounds();
   rectMode(CENTER);
   angleMode(RADIANS);
 
-  // 안드로이드 등 권한 요청이 필요 없는 환경 확인
+  // iOS 13+ 이외의 환경(안드로이드 등)은 바로 권한 허용
   if (!(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function')) {
     gyroEnabled = true;
     permissionGranted = true;
+    isCalibrated = true;
   }
 }
 
 function draw() {
   background(245);
 
-  // 1. 권한 획득 전 시작 화면
+  // 기사 권장 사항: 권한 획득 전까지 UI로 가림
   if (!isCalibrated) {
     drawStartScreen();
     return; 
@@ -52,8 +48,8 @@ function draw() {
 
   Matter.Engine.update(engine);
 
-  // 2. 예전 박스 예제 감도 적용 (-90~90도 -> -2~2 중력)
   if (gyroEnabled) {
+    // 요청하신 예전 박스 예제 감도 (-90~90 -> -2~2)
     engine.gravity.x = map(rotationY, -90, 90, -2, 2);
     engine.gravity.y = map(rotationX, -90, 90, -2, 2);
     engine.gravity.x = constrain(engine.gravity.x, -8, 8);
@@ -65,7 +61,6 @@ function draw() {
     grabConstraint.pointA.y = pointerY;
   }
 
-  // 회색 네모(drawGround)는 그리지 않음
   for (const k of keys) k.show();
   if (dragging && dragStart) drawPreview();
 }
@@ -81,18 +76,19 @@ function drawStartScreen() {
   textSize(22);
   text("시작하기", width / 2, height / 2);
   textSize(14);
-  text("터치 시 자이로 센서가 활성화됩니다", width / 2, height / 2 + 60);
+  text("터치하여 센서 권한을 허용하세요", width / 2, height / 2 + 60);
   pop();
 }
 
 function touchStarted() {
-  // 버튼 클릭 판정 (User Gesture 생성)
+  // 사용자의 명시적인 터치 이벤트 안에서 handlePermission 호출
   if (!isCalibrated) {
     if (mouseX > width/2 - 110 && mouseX < width/2 + 110 && 
         mouseY > height/2 - 35 && mouseY < height/2 + 35) {
       handlePermission();
       return false;
     }
+    return false;
   }
 
   if (permissionGranted) {
@@ -104,26 +100,25 @@ function touchStarted() {
 }
 
 function handlePermission() {
+  // iOS 13+ 기기에서 권한 요청 (기사 권장 로직)
   if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
     DeviceOrientationEvent.requestPermission()
       .then(res => {
-        if (res === 'granted') {
+        if (res === 'granted') { // 권한 승인 시
           gyroEnabled = true;
           permissionGranted = true;
           isCalibrated = true;
         }
       })
       .catch(err => {
-        alert("자이로 에러: " + String(err)); //
+        alert("권한 요청 실패: " + String(err)); // HTTPS가 아닐 때 주로 발생
       });
   } else {
-    gyroEnabled = true;
-    permissionGranted = true;
     isCalibrated = true;
   }
 }
 
-// --- 물리 및 생성 로직 (생략 없이 통합) ---
+// --- 물리 및 생성 로직 ---
 
 function buildKeyBodyLocal(x, y, w, h, p, angle) {
   const bowX = -w * 0.3;
@@ -242,7 +237,6 @@ function releaseGrab() { if (grabConstraint) { Matter.World.remove(world, grabCo
 function buildBounds() {
   const t = WALL_THICKNESS;
   if (ground) Matter.World.remove(world, [ground, ...walls]);
-  // 바닥을 화면 밖으로 배치
   ground = Matter.Bodies.rectangle(width/2, height + t/2, width, t, { isStatic: true });
   walls = [
     Matter.Bodies.rectangle(-t/2, height/2, t, height, { isStatic: true }),

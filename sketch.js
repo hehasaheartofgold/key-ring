@@ -10,16 +10,14 @@ const WALL_THICKNESS = 90;
 let grabBody = null, grabConstraint = null;
 let pointerX = 0, pointerY = 0;
 
-// 자이로 및 권한 관련 변수
 let gyroEnabled = false;
 let permissionGranted = false;
-let isCalibrated = false;
 
 function setup() {
   const cnv = createCanvas(windowWidth, windowHeight);
   cnv.parent("container");
   
-  // 모바일 스크롤 및 튕김 방지
+  // 모바일 스크롤 방지
   cnv.elt.addEventListener('touchstart', e => e.preventDefault(), {passive: false});
   cnv.elt.addEventListener('touchmove', e => e.preventDefault(), {passive: false});
 
@@ -29,27 +27,49 @@ function setup() {
   rectMode(CENTER);
   angleMode(RADIANS);
 
-  // iOS 13+ 이외의 환경(안드로이드 등)은 바로 권한 허용
-  if (!(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function')) {
+  // ✅ [기사 반영] 사파리 보안을 뚫기 위한 순수 HTML 버튼 생성
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    let btn = document.createElement('button');
+    btn.innerHTML = '자이로 센서 활성화';
+    btn.style = "position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); padding:20px 40px; z-index:9999; font-size:20px; border-radius:15px; background:#3296ff; color:white; border:none; font-weight:bold; box-shadow: 0 4px 15px rgba(0,0,0,0.2);";
+    document.body.appendChild(btn);
+
+    // ✅ 클릭 이벤트에서 즉시 requestPermission 호출 (중간 함수 거치지 않음)
+    btn.onclick = function() {
+      DeviceOrientationEvent.requestPermission()
+        .then(res => {
+          if (res === 'granted') {
+            gyroEnabled = true;
+            permissionGranted = true;
+            btn.remove(); // 허용 시 버튼 제거
+          }
+        })
+        .catch(err => {
+          alert("권한 요청 실패: " + err); // HTTPS가 아닐 때 주로 발생
+        });
+    };
+  } else {
+    // iOS 13+가 아닌 경우 바로 실행
     gyroEnabled = true;
     permissionGranted = true;
-    isCalibrated = true;
   }
 }
 
 function draw() {
   background(245);
 
-  // 기사 권장 사항: 권한 획득 전까지 UI로 가림
-  if (!isCalibrated) {
-    drawStartScreen();
-    return; 
+  if (!permissionGranted) {
+    textAlign(CENTER, CENTER);
+    textSize(16);
+    fill(100);
+    text("센서 권한이 필요합니다.\n화면의 버튼을 눌러주세요.", width / 2, height / 2 + 80);
+    return;
   }
 
   Matter.Engine.update(engine);
 
+  // 요청하신 예전 박스 예제 감도 적용 (-90~90도 -> -2~2 중력)
   if (gyroEnabled) {
-    // 요청하신 예전 박스 예제 감도 (-90~90 -> -2~2)
     engine.gravity.x = map(rotationY, -90, 90, -2, 2);
     engine.gravity.y = map(rotationX, -90, 90, -2, 2);
     engine.gravity.x = constrain(engine.gravity.x, -8, 8);
@@ -65,32 +85,9 @@ function draw() {
   if (dragging && dragStart) drawPreview();
 }
 
-function drawStartScreen() {
-  push();
-  fill(0, 150);
-  rect(width / 2, height / 2, width, height);
-  fill(50, 150, 255);
-  rect(width / 2, height / 2, 220, 70, 15);
-  fill(255);
-  textAlign(CENTER, CENTER);
-  textSize(22);
-  text("시작하기", width / 2, height / 2);
-  textSize(14);
-  text("터치하여 센서 권한을 허용하세요", width / 2, height / 2 + 60);
-  pop();
-}
+// --- 물리 및 생성 로직 ---
 
 function touchStarted() {
-  // 사용자의 명시적인 터치 이벤트 안에서 handlePermission 호출
-  if (!isCalibrated) {
-    if (mouseX > width/2 - 110 && mouseX < width/2 + 110 && 
-        mouseY > height/2 - 35 && mouseY < height/2 + 35) {
-      handlePermission();
-      return false;
-    }
-    return false;
-  }
-
   if (permissionGranted) {
     let tx = (touches.length > 0) ? touches[0].x : mouseX;
     let ty = (touches.length > 0) ? touches[0].y : mouseY;
@@ -98,27 +95,6 @@ function touchStarted() {
   }
   return false;
 }
-
-function handlePermission() {
-  // iOS 13+ 기기에서 권한 요청 (기사 권장 로직)
-  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-    DeviceOrientationEvent.requestPermission()
-      .then(res => {
-        if (res === 'granted') { // 권한 승인 시
-          gyroEnabled = true;
-          permissionGranted = true;
-          isCalibrated = true;
-        }
-      })
-      .catch(err => {
-        alert("권한 요청 실패: " + String(err)); // HTTPS가 아닐 때 주로 발생
-      });
-  } else {
-    isCalibrated = true;
-  }
-}
-
-// --- 물리 및 생성 로직 ---
 
 function buildKeyBodyLocal(x, y, w, h, p, angle) {
   const bowX = -w * 0.3;

@@ -22,6 +22,10 @@ let isCalibrated = false;
 function setup() {
   const cnv = createCanvas(windowWidth, windowHeight);
   cnv.parent("container");
+  
+  // ✅ 모바일 브라우저 기본 터치 동작(스크롤) 차단
+  cnv.elt.addEventListener('touchstart', e => e.preventDefault(), {passive: false});
+  cnv.elt.addEventListener('touchmove', e => e.preventDefault(), {passive: false});
 
   engine = Matter.Engine.create();
   world = engine.world;
@@ -40,29 +44,20 @@ function setup() {
 function draw() {
   background(245);
 
-  // 1. 영점 조절 전: 시작 화면 출력
+  // 1. 권한 획득 전 시작 화면
   if (!isCalibrated) {
     drawStartScreen();
     return; 
   }
 
-  // 2. 영점 조절 후: 물리 엔진 가동
   Matter.Engine.update(engine);
 
-if (gyroEnabled && isCalibrated) {
-    // 현재 각도에서 시작 시점의 각도를 뺀 "변화량"
-    let calX = rotationX - offsetX;
-    let calY = rotationY - offsetY;
-
-    // 1. 좌우 중력 (예전 박스 예제 값: -90~90 -> -2~2)
-    engine.gravity.x = map(calY, -90, 90, -2, 2);
-
-    // 2. 상하 중력 (예전 박스 예제 값: -90~90 -> -2~2)
-    engine.gravity.y = map(calX, -90, 90, -2, 2);
-
-    // 극한의 각도에서 너무 빨라지지 않도록 안전 제한
-    engine.gravity.x = constrain(engine.gravity.x, -5, 5);
-    engine.gravity.y = constrain(engine.gravity.y, -5, 5);
+  // 2. 예전 박스 예제 감도 적용 (-90~90도 -> -2~2 중력)
+  if (gyroEnabled) {
+    engine.gravity.x = map(rotationY, -90, 90, -2, 2);
+    engine.gravity.y = map(rotationX, -90, 90, -2, 2);
+    engine.gravity.x = constrain(engine.gravity.x, -8, 8);
+    engine.gravity.y = constrain(engine.gravity.y, -8, 8);
   }
 
   if (grabConstraint) {
@@ -70,7 +65,7 @@ if (gyroEnabled && isCalibrated) {
     grabConstraint.pointA.y = pointerY;
   }
 
-  drawGround();
+  // 회색 네모(drawGround)는 그리지 않음
   for (const k of keys) k.show();
   if (dragging && dragStart) drawPreview();
 }
@@ -86,22 +81,20 @@ function drawStartScreen() {
   textSize(22);
   text("시작하기", width / 2, height / 2);
   textSize(14);
-  text("터치하는 순간의 각도가 바닥이 됩니다", width / 2, height / 2 + 60);
+  text("터치 시 자이로 센서가 활성화됩니다", width / 2, height / 2 + 60);
   pop();
 }
 
 function touchStarted() {
-  // 시작 전 버튼 클릭 판정
+  // 버튼 클릭 판정 (User Gesture 생성)
   if (!isCalibrated) {
     if (mouseX > width/2 - 110 && mouseX < width/2 + 110 && 
         mouseY > height/2 - 35 && mouseY < height/2 + 35) {
       handlePermission();
       return false;
     }
-    return false;
   }
 
-  // 시작 이후 열쇠 생성 드래그 시작
   if (permissionGranted) {
     let tx = (touches.length > 0) ? touches[0].x : mouseX;
     let ty = (touches.length > 0) ? touches[0].y : mouseY;
@@ -117,24 +110,20 @@ function handlePermission() {
         if (res === 'granted') {
           gyroEnabled = true;
           permissionGranted = true;
-          setCalibration();
+          isCalibrated = true;
         }
       })
-      .catch(alert);
+      .catch(err => {
+        alert("자이로 에러: " + String(err)); //
+      });
   } else {
     gyroEnabled = true;
     permissionGranted = true;
-    setCalibration();
+    isCalibrated = true;
   }
 }
 
-function setCalibration() {
-  offsetX = rotationX;
-  offsetY = rotationY;
-  isCalibrated = true;
-}
-
-// --- 물리 바디 및 열쇠 생성 로직 ---
+// --- 물리 및 생성 로직 (생략 없이 통합) ---
 
 function buildKeyBodyLocal(x, y, w, h, p, angle) {
   const bowX = -w * 0.3;
@@ -249,9 +238,11 @@ function tryGrabKey(mx, my) {
 }
 
 function releaseGrab() { if (grabConstraint) { Matter.World.remove(world, grabConstraint); grabConstraint = null; } }
+
 function buildBounds() {
   const t = WALL_THICKNESS;
   if (ground) Matter.World.remove(world, [ground, ...walls]);
+  // 바닥을 화면 밖으로 배치
   ground = Matter.Bodies.rectangle(width/2, height + t/2, width, t, { isStatic: true });
   walls = [
     Matter.Bodies.rectangle(-t/2, height/2, t, height, { isStatic: true }),
@@ -260,9 +251,8 @@ function buildBounds() {
   ];
   Matter.World.add(world, [ground, ...walls]);
 }
-function drawGround() { fill(220); rect(width/2, height, width, 10); }
-function windowResized() { resizeCanvas(windowWidth, windowHeight); buildBounds(); }
 
+function windowResized() { resizeCanvas(windowWidth, windowHeight); buildBounds(); }
 function mousePressed() { if (touches.length === 0) startPointer(mouseX, mouseY); }
 function mouseDragged() { if (touches.length === 0) movePointer(mouseX, mouseY); }
 function mouseReleased() { if (touches.length === 0) endPointer(); }
